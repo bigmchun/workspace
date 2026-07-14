@@ -12,6 +12,7 @@ Pygame으로 만든 테트리스 게임
 import pygame
 import random
 import sys
+import numpy as np
 
 # ------------------------------------------------------------
 # 기본 설정
@@ -67,6 +68,86 @@ SHAPES = {
 }
 
 
+class SoundManager:
+    """
+    별도 음원 파일 없이 numpy로 파형을 직접 만들어서
+    pygame.mixer.Sound 객체로 변환해주는 클래스.
+    사인파 + 짧은 페이드아웃으로 '삐' 하는 효과음을 생성한다.
+    """
+
+    SAMPLE_RATE = 44100
+
+    def __init__(self):
+        self.enabled = True
+        try:
+            pygame.mixer.init(frequency=self.SAMPLE_RATE, size=-16, channels=1)
+        except pygame.error:
+            # 오디오 장치가 없는 환경(서버, 헤드리스 등)에서는 조용히 비활성화
+            self.enabled = False
+            return
+
+        self.sounds = {
+            "move": self._make_tone(220, 0.05, volume=0.25),
+            "rotate": self._make_tone(330, 0.06, volume=0.25),
+            "drop": self._make_tone(150, 0.12, volume=0.35),
+            "line_clear": self._make_chord([523, 659, 784], 0.20, volume=0.4),
+            "level_up": self._make_chord([392, 523, 659, 784], 0.30, volume=0.4),
+            "game_over": self._make_tone(110, 0.6, volume=0.4, descending=True),
+        }
+
+    def _make_tone(self, freq, duration, volume=0.3, descending=False):
+        """단일 주파수의 사인파 톤 생성 (descending=True면 음이 점점 낮아짐)"""
+        n_samples = int(self.SAMPLE_RATE * duration)
+        t = np.linspace(0, duration, n_samples, endpoint=False)
+
+        if descending:
+            # 시간에 따라 주파수가 절반까지 떨어지도록
+            freq_curve = freq * (1 - 0.5 * (t / duration))
+            wave = np.sin(2 * np.pi * freq_curve * t)
+        else:
+            wave = np.sin(2 * np.pi * freq * t)
+
+        return self._to_sound(wave, volume)
+
+    def _make_chord(self, freqs, duration, volume=0.3):
+        """여러 주파수를 합쳐서 화음 느낌의 효과음 생성 (줄 삭제, 레벨업용)"""
+        n_samples = int(self.SAMPLE_RATE * duration)
+        t = np.linspace(0, duration, n_samples, endpoint=False)
+
+        wave = np.zeros(n_samples)
+        for freq in freqs:
+            wave += np.sin(2 * np.pi * freq * t)
+        wave /= len(freqs)  # 합친 만큼 커진 진폭을 다시 정규화
+
+        return self._to_sound(wave, volume)
+
+    def _to_sound(self, wave, volume):
+        """0~1 범위의 파형 배열을 pygame Sound 객체로 변환 (짧은 페이드아웃 포함)"""
+        n_samples = len(wave)
+
+        # 끝부분에 짧은 페이드아웃을 걸어서 '뚝' 끊기는 잡음을 방지
+        fade_len = max(1, int(n_samples * 0.15))
+        fade = np.linspace(1, 0, fade_len)
+        wave[-fade_len:] *= fade
+
+        audio = (wave * volume * 32767).astype(np.int16)
+
+        # 믹서가 실제로 몇 채널로 초기화됐는지 확인해서 배열 형태를 맞춘다
+        # (일부 환경에서는 mono 요청해도 stereo로 초기화되는 경우가 있음)
+        init_info = pygame.mixer.get_init()
+        channels = init_info[2] if init_info else 1
+
+        if channels >= 2:
+            audio = np.repeat(audio.reshape(-1, 1), channels, axis=1)
+
+        audio = np.ascontiguousarray(audio)
+        return pygame.sndarray.make_sound(audio)
+
+    def play(self, name):
+        if self.enabled and name in self.sounds:
+            self.sounds[name].play()
+
+
 class Piece:
     """떨어지는 블록(테트로미노)을 표현하는 클래스"""
 
@@ -103,6 +184,8 @@ class Tetris:
 
         self.font_big = pygame.font.SysFont("malgungothic", 36)
         self.font_small = pygame.font.SysFont("malgungothic", 22)
+
+        self.sound = SoundManager()
 
         self.reset_game()
 
@@ -193,6 +276,7 @@ class Tetris:
             if r < 0:
                 # 블록이 보드 맨 위에서부터 쌓여서 넘치면 게임 오버
                 self.game_over = True
+                self.sound.play("game_over")
                 return
             self.board[r][c] = self.current.color
 
@@ -204,6 +288,7 @@ class Tetris:
         # 새로 생성된 블록이 바로 겹치면 게임 오버
         if not self.valid_position(self.current.get_cells()):
             self.game_over = True
+            self.sound.play("game_over")
 
     def clear_lines(self):
         """가득 찬 줄을 찾아서 삭제하고, 위쪽 줄들을 아래로 내림"""
@@ -223,9 +308,16 @@ class Tetris:
         score_table = {1: 100, 2: 300, 3: 500, 4: 800}
         self.score += score_table.get(cleared, 0) * self.level
 
+        prev_level = self.level
+
         # 10줄마다 레벨업 + 낙하 속도 증가
         self.level = self.lines_cleared_total // 10 + 1
         self.fall_speed = max(100, BASE_FALL_SPEED - (self.level - 1) * 60)
+
+        if self.level > prev_level:
+            self.sound.play("level_up")
+        else:
+            self.sound.play("line_clear")
 
     # ----------------------------------------------------------------
     # 그리기 관련 함수
@@ -362,14 +454,18 @@ class Tetris:
                         continue
 
                     if event.key == pygame.K_LEFT:
-                        self.move(0, -1)
+                        if self.move(0, -1):
+                            self.sound.play("move")
                     elif event.key == pygame.K_RIGHT:
-                        self.move(0, 1)
+                        if self.move(0, 1):
+                            self.sound.play("move")
                     elif event.key == pygame.K_UP:
-                        self.rotate()
+                        if self.rotate():
+                            self.sound.play("rotate")
                     elif event.key == pygame.K_DOWN:
                         self.soft_drop()
                     elif event.key == pygame.K_SPACE:
+                        self.sound.play("drop")
                         self.hard_drop()
 
             if not self.game_over:
