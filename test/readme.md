@@ -1,19 +1,9 @@
-# 파이썬 컴파일 파일 (Byte-compiled / optimized / DLL
-files)
-__pycache__/
-*.py[cod]
-*$py.class
-# 가상환경 폴더 (Virtual Environments)
-venv/
-env/
-.venv/
-.env
-# 배포 패키지 관련 (Distribution / packaging)
-build/
-dist/
-*.egg-info/
-# IDE 설정 파일 (필요 시 추가)
-.vscode/
-.idea/
-# 맥(Mac) 시스템 파일
-.DS_Store
+# 나의 파이썬 프로젝트 (My Python Project)
+## 프로젝트 소개
+이 프로젝트는 Git 환경 설정 및 파이썬 실습을 위해 생성된 프로젝트입니다.
+## 기능 목록
+- 프로젝트 정보 생성 실습
+- Git 버전 관리 테스트
+## 설치 및 실행 방법
+1. 저장소를 클론합니다.
+2. 파이썬을 실행합니다.
