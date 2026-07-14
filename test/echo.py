@@ -1,7 +1,17 @@
-# 사용자가 입력하면 그대로 출력하는 프로그램
-def main(): 
-    user_input = input("문장을 입력하세요: ") 
-    print("입력하신 문장은: ", user_input)
+def main():
+    print("문장을 입력하세요 (종료하려면 '!!!' 입력)")
+    print("-" * 40)
 
-if __name__ == "__name__": 
+    while True:
+        user_input = input(">> ")
+
+        # 종료 조건 체크
+        if user_input == "!!!":
+            print("프로그램을 종료합니다. 안녕히 가세요!")
+            break
+
+        print("입력하신 문장은:", user_input)
+
+
+if __name__ == "__main__":
     main()
